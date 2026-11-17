@@ -1,0 +1,99 @@
+# Continuous Integration workflow: builds, tests, packages a container image, then
+# deploys and verifies it end-to-end against an ephemeral kind (Kubernetes-in-Docker) cluster.
+
+name: CI
+
+# Trigger on pushes to main and on pull requests that target main.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least-privilege: only read access to repository contents (no registry pushes, no secrets).
+permissions:
+  contents: read
+
+jobs:
+  test-and-deploy:
+    # GitHub-hosted Ubuntu runner (Docker, kubectl, and curl available by default).
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Check out the repository source code.
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # 2. Install Node.js 22 with npm dependency caching enabled.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # 3. Install dependencies reproducibly from package-lock.json.
+      - name: Install dependencies
+        run: npm ci
+
+      # 4. Run the test suite.
+      - name: Run tests
+        run: npm test
+
+      # 5. Build the application container image (local tag only; never pushed to a registry).
+      - name: Build Docker image
+        run: docker build -t nodejs-kubernetes-ci-demo:test .
+
+      # 6. Spin up a local Kubernetes cluster with kind.
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: nodejs-demo
+
+      # 7. Load the locally built image into the kind cluster (no registry required).
+      - name: Load image into kind
+        run: kind load docker-image nodejs-kubernetes-ci-demo:test --name nodejs-demo
+
+      # 8. Apply Kubernetes manifests and roll out the locally built image.
+      - name: Deploy manifests
+        run: |
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          kubectl -n node-demo set image deployment/node-frontend node-frontend=nodejs-kubernetes-ci-demo:test
+
+      # 9. Wait for the deployment rollout to complete.
+      - name: Wait for rollout
+        run: kubectl -n node-demo rollout status deployment/node-frontend --timeout=180s
+
+      # 10. Start a background port-forward so the service is reachable on localhost.
+      - name: Start port-forward
+        run: |
+          kubectl -n node-demo port-forward svc/node-frontend 8080:80 > /tmp/port-forward.log 2>&1 &
+          sleep 5
+
+      # 11. Verify the frontend page renders the expected content.
+      - name: Verify frontend page
+        run: curl -sf http://127.0.0.1:8080/ | grep -F "Node.js Frontend Running on Kubernetes"
+
+      # 12. Verify the health endpoint returns HTTP 200 with a valid JSON payload.
+      - name: Verify health endpoint
+        run: |
+          code=$(curl -s -o /tmp/health.json -w '%{http_code}' http://127.0.0.1:8080/health)
+          echo "HTTP status: $code"
+          cat /tmp/health.json
+          echo
+          test "$code" = "200"
+          grep -Fq '"status":"ok"' /tmp/health.json
+
+      # 13. On failure, dump cluster state to ease debugging; "|| true" ensures diagnostics never fail.
+      - name: Print diagnostics
+        if: failure()
+        run: |
+          echo "=== Pods ==="
+          kubectl get pods -n node-demo -o wide || true
+          echo "=== Services ==="
+          kubectl get services -n node-demo -o wide || true
+          echo "=== Deployments ==="
+          kubectl get deployments -n node-demo -o wide || true
+          echo "=== Events ==="
+          kubectl get events -n node-demo --sort-by=.lastTimestamp || true
+          echo "=== Pod logs ==="
+          kubectl logs -n node-demo -l app=node-frontend --all-containers --tail=100 || true
