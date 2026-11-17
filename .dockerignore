@@ -1,0 +1,42 @@
+# Files and directories excluded from the Docker build context.
+# Keeping these out of "docker build" speeds up builds, avoids cache-busting
+# from unrelated file changes, and prevents secrets/dev artifacts from
+# leaking into the production image.
+
+# Dependencies (installed inside the image via npm ci)
+node_modules
+
+# Logs and debug output
+npm-debug.log*
+*.log
+
+# Version control and repository metadata
+.git
+.gitignore
+.github
+
+# Environment / secrets files
+.env
+.env.*
+
+# Docker and CI/CD assets (not needed inside the image)
+Dockerfile
+.dockerignore
+k8s
+
+# Tests, docs, coverage reports
+test
+README.md
+coverage
+
+# Editor and IDE settings
+.vscode
+.idea
+
+# Build output and a stray "node" dir
+node
+dist
+
+# OS-generated files
+.DS_Store
+Thumbs.db

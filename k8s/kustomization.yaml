@@ -1,0 +1,13 @@
+# Kustomize manifest for the k8s/ directory.
+# Apply everything at once with:  kubectl apply -k k8s/
+# Note: CI overrides the image with "kubectl set image" after applying these
+# resources, so the :latest tag below is only a local/default fallback.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Default namespace for all resources in this bundle
+namespace: node-demo
+
+resources:
+  - deployment.yaml
+  - service.yaml

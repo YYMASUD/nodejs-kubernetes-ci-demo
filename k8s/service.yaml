@@ -1,0 +1,19 @@
+# Cluster-internal Service that load-balances across the node-frontend Pods.
+# ClusterIP keeps the app reachable only from inside the cluster (e.g. from
+# an ingress or other services); no external load balancer is provisioned.
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-frontend
+  namespace: node-demo
+  labels:
+    app: node-frontend
+spec:
+  type: ClusterIP
+  # Matches the labels on the Deployment's Pod template
+  selector:
+    app: node-frontend
+  ports:
+    - name: http
+      port: 80        # port exposed inside the cluster
+      targetPort: 3000  # containerPort the app listens on

@@ -1,0 +1,60 @@
+# Namespace that groups all resources for the demo app.
+# Keeping a dedicated namespace makes it easy to clean up with a single
+# "kubectl delete namespace node-demo".
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: node-demo
+---
+# Deployment running the containerized Express frontend.
+# CI (GitHub Actions) deploys this manifest and then updates the image with
+# "kubectl set image" so the tag/SHA is always the one built in that run.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-frontend
+  namespace: node-demo
+  labels:
+    app: node-frontend
+spec:
+  # Two replicas so the Service keeps serving traffic if one Pod dies
+  replicas: 2
+  selector:
+    matchLabels:
+      app: node-frontend
+  template:
+    metadata:
+      labels:
+        app: node-frontend
+    spec:
+      containers:
+        - name: node-frontend
+          # Default image; CI overrides this with kubectl set image
+          image: ghcr.io/yymasud/nodejs-kubernetes-ci-demo:latest
+          # Only pull when the tag is not already on the node
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3000
+          # Readiness: wait a moment for boot, then check quickly and often
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          # Liveness: restart the container if /health stops responding
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          # Right-size a tiny Express app: small requests, capped limits
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
